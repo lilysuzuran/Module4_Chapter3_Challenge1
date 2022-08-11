@@ -4,6 +4,8 @@
 #include <thread>
 #include <chrono>
 #include <conio.h>
+#include <mutex>
+
 using namespace std;
 
 ENetAddress address;
@@ -11,6 +13,7 @@ ENetHost* server = nullptr;
 ENetHost* client = nullptr;
 
 bool messageReady = false;
+bool guessProcessing = false;
 char MessageName[999];
 
 void MessageIntake()
@@ -18,9 +21,13 @@ void MessageIntake()
     cin.ignore(999, '\n');
     while (1)
     {
-        cin.getline(MessageName, 999, '\n');
-        messageReady = true;
-        this_thread::sleep_for(chrono::milliseconds(500));
+        if (guessProcessing == false)  // TODO: I can use Mutex to .lock() Message Intake instead of global variable, if I get extra time
+        {
+            cin.getline(MessageName, 999, '\n');
+            messageReady = true;
+            this_thread::sleep_for(chrono::milliseconds(500));
+            guessProcessing = true;
+        }
     }
 }
 bool CreateServer()
@@ -116,7 +123,7 @@ int main(int argc, char** argv)
         }
     }
 
-
+    cout << "Game Rules:" << endl;
     cout << "There is a secret number between 0 to 9." << endl;
     cout << "Once the game starts, Players can type in their guesses." << endl;
     cout << "The game starts when two Players have joined." << endl;
@@ -142,6 +149,8 @@ int main(int argc, char** argv)
 
         while (1)
         {
+            guessProcessing = false;
+
             if (MessageName[0] == 'Q' && MessageName[1] == 'U' && MessageName[2] == 'I' && MessageName[3] == 'T')
             {
                 cout << endl << endl << "Exiting Program" << endl << endl;
@@ -154,6 +163,7 @@ int main(int argc, char** argv)
                 enet_host_broadcast(server, 0, packet);
                 enet_host_flush(server);
                 messageReady = false;
+                cout << "Reminder: As the Host, your guesses will not be considered." << endl;
             }
 
             while (enet_host_service(server, &event, 500) > 0)
@@ -208,7 +218,6 @@ int main(int argc, char** argv)
                         enet_host_flush(server);
                     }
 
-
                     if (currentPlayers == 2)
                     {
                         ENetPacket* packet;
@@ -222,13 +231,13 @@ int main(int argc, char** argv)
                     if (currentPlayers == 2 && firstCharacter != secretNumber)
                     {
                         ENetPacket* packet;
-                        string Message = "This was not the correct number. ";
+                        string Message = "That was not the correct number. ";
                         packet = enet_packet_create(Message.c_str(), Message.length() + 1, ENET_PACKET_FLAG_RELIABLE);
                         enet_host_broadcast(server, 0, packet);
                         enet_host_flush(server);
                     }
 
-                    else if (currentPlayers == 2 && firstCharacter == secretNumber)
+                    if (currentPlayers == 2 && firstCharacter == secretNumber)
                     {
                         ENetPacket* packet;
                         string Message = "THIS IS THE CORRECT NUMBER! WE HAVE A WINNER!";
@@ -237,17 +246,20 @@ int main(int argc, char** argv)
                         enet_host_flush(server);
 
                         cout << endl << endl << "THE NUMBER WAS GUESSED! ENDING THE GAME." << endl;
-
                         return 0;
                     }
 
+                    {
+                        ENetPacket* packet;
+                        string Message = "heard";
+                        packet = enet_packet_create(Message.c_str(), Message.length() + 1, ENET_PACKET_FLAG_RELIABLE);
+                        enet_peer_send(event.peer, 0, packet);
+                        enet_host_flush(server);
+                    }
                     break;
                 }
             }
         }
-
-
-
     }
 
     // Client Code
@@ -271,15 +283,18 @@ int main(int argc, char** argv)
                 messageReady = false;
             }
 
-
             while (enet_host_service(client, &event, 500) > 0)
             {
                 switch (event.type)
                 {
                 case ENET_EVENT_TYPE_RECEIVE:
                     Received = (char*)event.packet->data;
-                    cout << Received << endl;
                     enet_packet_destroy(event.packet);
+
+                    if (Received != "heard")
+                    {
+                        cout << Received << endl;
+                    }
 
                     if (Received == "THIS IS THE CORRECT NUMBER! WE HAVE A WINNER!")
                     {
@@ -289,6 +304,10 @@ int main(int argc, char** argv)
                 }
             }
 
+            if (Received == "heard")
+            {
+                guessProcessing = false;
+            }
         }
     }
 
