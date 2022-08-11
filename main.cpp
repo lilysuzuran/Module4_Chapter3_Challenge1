@@ -3,12 +3,26 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#include <conio.h>
 using namespace std;
 
 ENetAddress address;
 ENetHost* server = nullptr;
 ENetHost* client = nullptr;
 
+bool messageReady = false;
+char MessageName[999];
+
+void MessageIntake()
+{
+    cin.ignore(999, '\n');
+    while (1)
+    {
+        cin.getline(MessageName, 999, '\n');
+        messageReady = true;
+        this_thread::sleep_for(chrono::milliseconds(500));
+    }
+}
 bool CreateServer()
 {
     address.host = ENET_HOST_ANY;
@@ -22,21 +36,9 @@ bool CreateClient()
     return client != nullptr;
 }
 
-bool messageReady = false;
-char MessageName[999];
-bool winnerExists = false;
-
-void MessageIntake()
-{
-    cin.ignore(999, '\n');
-    while (1)
-    {
-        cin.getline (MessageName, 999, '\n');
-        messageReady = true;
-        this_thread::sleep_for(chrono::milliseconds(500));
-    }  
-   
-}
+// TODO: I can clean up most of this code into classes and store them in separate header and cpp files
+// However I'm really far behind on my other Level Up U stuff like McKinsey and Game Dev 101 tasks so I just made a working program
+// On the job I'm sure this would be tech debt I'd need to clean up when there's time, but Level Up U is super fast paced right now...
 
 int main(int argc, char** argv)
 {
@@ -48,15 +50,17 @@ int main(int argc, char** argv)
         return EXIT_FAILURE;
     }
 
-    cout << "1) Create Server " << endl;
-    cout << "2) Create Client " << endl << endl;
+    cout << endl;
+    cout << "Welcome to the Number Guessing Game!" << endl;
+    cout << "Please select whether you want to set up a Server, or join one as a Player." << endl;
+    cout << endl;
+    cout << "1) Create a Server as a non-Player " << endl;
+    cout << "2) Join a Server as a Player " << endl; 
+    cout << endl;
+
     int UserInput;
     cin >> UserInput;
-
-    cout << "Welcome to the number guessing game!" << endl;
-    cout << "Try to guess the secret number between 0 to 9." << endl;
-    cout << "Type your chat messages below!" << endl;
-    cout << "Type QUIT to quit." << endl << endl;
+    system("cls");
     
     thread FirstThread(MessageIntake);
     FirstThread.detach();
@@ -64,7 +68,6 @@ int main(int argc, char** argv)
     ENetAddress address;
     ENetEvent event;
     ENetPacket* packet;
-
 
     // Connections Setup
     if (UserInput == 1)
@@ -75,6 +78,10 @@ int main(int argc, char** argv)
                 "An error occurred while trying to create an ENet server host.\n");
             exit(EXIT_FAILURE);
         }
+
+        cout << "You have started a Number Guessing Game Server." << endl;
+        cout << "As the Game Host, any guesses you make will not be considered." << endl;
+        cout << endl;
     }
     if (UserInput == 2)
     {
@@ -86,28 +93,37 @@ int main(int argc, char** argv)
         }
 
         ENetPeer* peer;
-
         enet_address_set_host(&address, "127.0.0.1");
         address.port = 1234;
         peer = enet_host_connect(client, &address, 2, 0);
 
         if (peer == NULL)
         {
-            fprintf(stderr, "No available peers for initiating an ENet connection.\n");
+            fprintf(stderr, "There were no available Number Guessing Game Servers.\n");
             exit(EXIT_FAILURE);
         }
 
         if (enet_host_service(client, &event, 5000) > 0 && event.type == ENET_EVENT_TYPE_CONNECT)
         {
-            cout << "Connection to 127.0.0.1:1234 succeeded." << endl;
+            cout << "You have joined a Number Guessing Game Server." << endl;
+            cout << endl;
         }
 
         else
         {
             enet_peer_reset(peer);
-            cout << "Connection to 127.0.0.1:1234 failed." << endl;
+            cout << "Connecting to a Number Guessing Game Server failed." << endl;
         }
     }
+
+
+    cout << "There is a secret number between 0 to 9." << endl;
+    cout << "Once the game starts, Players can type in their guesses." << endl;
+    cout << "The game starts when two Players have joined." << endl;
+    cout << endl;
+    cout << "Type in your guesses below!" << endl;
+    cout << "Type QUIT to quit." << endl;
+    cout << endl;
 
 
     // Host Code
@@ -120,7 +136,8 @@ int main(int argc, char** argv)
         cout << "The secret number is: " << secretNumber << endl;
 
         string Received;
-        char firstCharacter;
+        char firstCharacter = 'x';
+        int currentPlayers = 0;
         
 
         while (1)
@@ -144,8 +161,30 @@ int main(int argc, char** argv)
                 switch (event.type)
                 {
                 case ENET_EVENT_TYPE_CONNECT:
-                    cout << "A new client connected. " << endl;
+                    cout << "A new player connected. " << endl;
                     event.peer->data = (void*)("Client information");
+
+                    currentPlayers += 1;
+
+                    ENetPacket* packet;
+                    if (currentPlayers == 1)
+                    {
+                        string Message = "1 out of 2 needed players have connected.";
+                        packet = enet_packet_create(Message.c_str(), Message.length() + 1, ENET_PACKET_FLAG_RELIABLE);
+                        enet_host_broadcast(server, 0, packet);
+                        enet_host_flush(server);
+                    }
+                     
+                    if (currentPlayers > 1)
+                    {
+                        string Message = "We have enough players! Time to start guessing!";
+                        packet = enet_packet_create(Message.c_str(), Message.length() + 1, ENET_PACKET_FLAG_RELIABLE);
+                        enet_host_broadcast(server, 0, packet);
+                        enet_host_flush(server);
+
+                        cout << Message << endl;
+                    }  
+
                     break;
 
                 case ENET_EVENT_TYPE_DISCONNECT:
@@ -156,22 +195,52 @@ int main(int argc, char** argv)
                 case ENET_EVENT_TYPE_RECEIVE:
                     Received = (char*)event.packet->data;
                     firstCharacter = Received.at(0);
+                    
                     cout << "Incoming Guess: " << firstCharacter << endl;
                     enet_packet_destroy(event.packet);
 
-                    if (firstCharacter == secretNumber)
+                    if (currentPlayers < 2)
                     {
-                        cout << endl << "THE NUMBER WAS GUESSED!" << endl;
                         ENetPacket* packet;
-
-                        string Message = "WE HAVE A WINNER!";
+                        string Message = "The game has not yet started; guesses will not be considered.";
                         packet = enet_packet_create(Message.c_str(), Message.length() + 1, ENET_PACKET_FLAG_RELIABLE);
-                        // packet = enet_packet_create("WE HAVE A WINNER!", strlen("WE HAVE A WINNER!") + 1, ENET_PACKET_FLAG_RELIABLE);
                         enet_host_broadcast(server, 0, packet);
                         enet_host_flush(server);
-                        messageReady = false;
+                    }
+
+
+                    if (currentPlayers == 2)
+                    {
+                        ENetPacket* packet;
+                        string NumberGuessed(1, firstCharacter);
+                        string Message = "A player has guessed the following number: " + NumberGuessed;
+                        packet = enet_packet_create(Message.c_str(), Message.length() + 1, ENET_PACKET_FLAG_RELIABLE);
+                        enet_host_broadcast(server, 0, packet);
+                        enet_host_flush(server);
+                    }
+
+                    if (currentPlayers == 2 && firstCharacter != secretNumber)
+                    {
+                        ENetPacket* packet;
+                        string Message = "This was not the correct number. ";
+                        packet = enet_packet_create(Message.c_str(), Message.length() + 1, ENET_PACKET_FLAG_RELIABLE);
+                        enet_host_broadcast(server, 0, packet);
+                        enet_host_flush(server);
+                    }
+
+                    else if (currentPlayers == 2 && firstCharacter == secretNumber)
+                    {
+                        ENetPacket* packet;
+                        string Message = "THIS IS THE CORRECT NUMBER! WE HAVE A WINNER!";
+                        packet = enet_packet_create(Message.c_str(), Message.length() + 1, ENET_PACKET_FLAG_RELIABLE);
+                        enet_host_broadcast(server, 0, packet);
+                        enet_host_flush(server);
+
+                        cout << endl << endl << "THE NUMBER WAS GUESSED! ENDING THE GAME." << endl;
+
                         return 0;
                     }
+
                     break;
                 }
             }
@@ -212,8 +281,11 @@ int main(int argc, char** argv)
                     cout << Received << endl;
                     enet_packet_destroy(event.packet);
 
-                    if (Received == "WE HAVE A WINNER!")
-                        return 0;
+                    if (Received == "THIS IS THE CORRECT NUMBER! WE HAVE A WINNER!")
+                    {
+                        cout << endl << endl << "The Game is Over, Thanks for Playing!!" << endl;
+                        break;
+                    }
                 }
             }
 
